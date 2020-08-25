@@ -17,7 +17,7 @@ from selenium import webdriver
 
 # workbook = xlsxwriter.Workbook('Memory.xlsx')
 
-connection = pyodbc.connect('driver={SQL Server};server=DESKTOP-MQ50SL2;database=Stonks')
+connection = pyodbc.connect('driver={SQL Server};server=#######-#######;database=######')
 
 class Transaction():
     def __init__(self, bought, sold, total, price, portfolioShare, dateTime):
@@ -33,9 +33,9 @@ class Transaction():
         return '{} {} {} {} {} {} {}'.format(self.bought, self.sold, self.total, self.price, self.portfolioShare, self.capital, self.dateTime)
         
 
-connectionString = "Server=localhost;Database=master;Trusted_Connection=True;"
-server = "DESKTOP-MQ50SL2"
-database = "Stonks"
+connectionString = "Server=localhost;Database=######;Trusted_Connection=True;"
+server = "######-######"
+database = "######"
 
 def readData():
     query = 'SELECT * FROM [dbo].[IBD_Trial1]'
