@@ -66,16 +66,40 @@ print(test)
 
 # printHead()
 
-driver = webdriver.Chrome('chromedriver')
-driver.get("")
-time.sleep(5)
-driver.close()
+def robinhoodLogin():
+    driver = webdriver.Chrome('chromedriver.exe')
+    driver.get("https://robinhood.com/us/en/")
+    driver.maximize_window()
+    
+    login = driver.find_element_by_xpath(r'//*[@id="root"]/div[2]/nav/div/div[4]/a[1]/span/span')
+    login.click()
+    
+    username = driver.find_element_by_xpath(r'//*[@id="react_root"]/div[1]/div[2]/div/div[2]/div/div/form/div/div[1]/div[1]/label/div[2]/input')
+    username.send_keys("########@email.com")
+    
+    password = driver.find_element_by_xpath(r'//*[@id="react_root"]/div[1]/div[2]/div/div[2]/div/div/form/div/div[1]/div[2]/label/div[2]/input')
+    password.send_keys("#########")
+    
+    sign_in = driver.find_element_by_xpath(r'//*[@id="react_root"]/div[1]/div[2]/div/div[2]/div/div/form/footer/div/button')
+    sign_in.click()
+    
+    time.sleep(2)
+    email_me = driver.find_element_by_xpath(r'//*[@id="react_root"]/div[1]/div[2]/div/div[2]/div/div/div/footer/div[2]/button/span')
+    email_me.click()
+    
+    time.sleep(20)
+    code = checkEmail.getCode()
+    print(code)
+    
+    codeInput = driver.find_element_by_xpath(r'//*[@id="react_root"]/div[1]/div[2]/div/div[2]/div/div/div/form/input')
+    codeInput.send_keys(code)
+    
+    confirm = driver.find_element_by_xpath(r'//*[@id="react_root"]/div[1]/div[2]/div/div[2]/div/div/div/form/footer/div[2]/button')
+    # confirm.click(
+    
+    # time.sleep(5)
+    # driver.close()
 
-
-
-
-
-
-
+robinhoodLogin()
 
 
