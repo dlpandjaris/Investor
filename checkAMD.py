@@ -9,6 +9,7 @@ Created on Wed Sep  2 00:50:02 2020
 import time
 import datetime
 import xlsxwriter
+from openpyxl import load_workbook
 from selenium import webdriver
 
 import pandas as pd
@@ -29,11 +30,19 @@ from addAMD import Daily_data
 # connection = pyodbc.connect('driver={SQL Server};server=DESKTOP-MQ50SL2;database=Stonks')
 
 def process_range(delta):
-    low = []
-    high = []
+    low = ""
+    high = ""
+    spaces = 0
     for char in delta:
-        while char != " ":
-            low.append(char)
+        if spaces == 0:
+            low += char
+        if spaces == 2:
+            high += char
+        if char == " ":
+            spaces += 1
+    low = float(low[:-1])
+    high = float(high)
+    return([low, high])
             
 def process_percent(delta):
     percent = ''
@@ -45,6 +54,13 @@ def process_percent(delta):
         if char == "(":
             go = True
     print("Percent:", percent)
+    
+def process_volume(string):
+    vol = ""
+    for char in string:
+        if char != ",":
+            vol += char
+    return(int(vol))
 
 def get_day():
     driver = webdriver.Chrome('chromedriver.exe')
@@ -53,27 +69,23 @@ def get_day():
     
     date = datetime.datetime.now().date()
     _open = driver.find_element_by_xpath(r'//*[@id="quote-summary"]/div[1]/table/tbody/tr[2]/td[2]/span')
-    print(_open)
+    _open = float(_open.text)
     delta = driver.find_element_by_xpath(r'//*[@id="quote-summary"]/div[1]/table/tbody/tr[5]/td[2]')
-    my_elements = []
-    for element in delta:
-        my_elements.append(element.get_attribute('href'))
-    print('low_high')
-    print(my_elements)
-    
-    # print(process_percent(delta))
-    # high = process_range(low_high)[1]
-    # low = process_range(low_high)[0]
+    delta = delta.text
+    low = process_range(delta)[0]
+    high = process_range(delta)[1]
     close = driver.find_element_by_xpath(r'//*[@id="quote-header-info"]/div[3]/div[1]/div/span[1]')
+    close = float(close.text)
     volume = driver.find_element_by_xpath(r'//*[@id="quote-summary"]/div[1]/table/tbody/tr[7]/td[2]/span')
-
+    volume = process_volume(volume.text)
+    
     day = Daily_data(date, _open, high, low, close, volume)
     driver.close()
     
     return(day)
     
-# print(get_day())
-
+# day = get_day()
+# print(day)
 
 def get_data():
     query = 'SELECT * FROM [dbo].[AMD]'
@@ -82,10 +94,11 @@ def get_data():
     
     return(data)
     
-def get_acc():
+def evaluate_stock():
     data = pd.read_csv("AMD_Processed.csv", delimiter=",")
     keys = []
     values = []
+    toms_predictors = []
     for i in range(len(data)):
         values.append([])
     
@@ -100,6 +113,10 @@ def get_acc():
                 values[index-i].append(row["Close"])
                 values[index-i].append(row["Volume"])
                 values[index-i].append(row["Delta"])
+        if index < -days:
+            print(index)
+    
+    
             
     values = values[days:len(data)-days]
     keys = keys[days:]
@@ -128,20 +145,64 @@ def get_acc():
         df[col_names[i]] = col_data[i]
     
     
+    
+    
     data_frame = pd.DataFrame(df, columns = col_names)
     
-        
     X = data_frame[col_names[:-1]]
     Y = data_frame['Y']
     
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
     
     model = LinearRegression(fit_intercept = True, normalize = True, copy_X = True)
-    model = model.fit(X, Y)
+    model = model.fit(X_train, Y_train)
+
+    coefs = model.coef_
+    # print(X_train)
     
-    expected = model.predict(X_test)
+    def predict_Y(index):
+        sumi = 0
+        for i in range(len(coefs)):
+            coef = "x" + str(i)
+            # print(X_test[coef][index])
+            sumi += coefs[i] * X_test[coef][index]
+        # sumi /= len(coefs)
+        return(sumi)
     
-    print(Y_test)
+    # print(abs(predict_Y(109) - Y_test[109]))
+    def get_accuracy_array():
+        all_acc = []
+        for i in range(len(data)):
+            try:
+                trial_diff = abs(predict_Y(i) - Y_test[i])
+                all_acc.append(trial_diff)
+            except KeyError:
+                pass
+        acc = []
+        for accuracy in all_acc:
+            if accuracy != -100:
+                acc.append(accuracy)
+        return(acc)
+    
+    # print(get_accuracy_array())
+    
+    def mean_squared_error():
+        error = get_accuracy_array()
+        sumi = []
+        for num in error:
+            sumi.append(num ** 2)
+        return(sum(sumi) / len(error))
+    
+    print(mean_squared_error())
+            
+    # expected = model.predict(X_test)
+    # print(expected)
+    # print(model.score(X_test, Y_test))
+    # print(Y_test)
+    
+    # for i in range(len(values)):
+        
+    
     # for i in range(len(expected)):
     #     print(i, Y_test[i])
         #print("Expected:", expected[i], "   Actual:", Y_test[i])
@@ -158,22 +219,7 @@ def get_acc():
     # print('Accuracy: ', accuracy)
     # plt.show()
 
-get_acc()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+evaluate_stock()
 
 
 
@@ -221,11 +267,14 @@ get_acc()
 #     norm_train_df, train_df.keys(),
 #     epochs=EPOCHS, validation_split=0.2, verbose=0)
 
-
-
-
-
-
 # connection.close()
 
+def add_to_data_table(day):
+    new_row = [day.date, day.open, day.high, day.low, day.close, day.volume, day.pps, day.delta]
+    workbook = load_workbook("AMD_Processed.xlsx")
+    worksheet = workbook.worksheets[0]
+    worksheet.append(new_row)
+    workbook.save("AMD_Processed.xlsx")
+
+# add_to_data_table(day)
 
