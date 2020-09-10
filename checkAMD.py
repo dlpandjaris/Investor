@@ -7,8 +7,10 @@ Created on Wed Sep  2 00:50:02 2020
 
 # import pyodbc
 import time
+import math
 import datetime
 import xlsxwriter
+import pyodbc
 from openpyxl import load_workbook
 from selenium import webdriver
 
@@ -27,7 +29,7 @@ from addAMD import Daily_data
 # from tensorflow import keras
 # from tensorflow.keras import layers
 
-# connection = pyodbc.connect('driver={SQL Server};server=DESKTOP-MQ50SL2;database=Stonks')
+connection = pyodbc.connect('driver={SQL Server};server=DESKTOP-MQ50SL2;database=Stonks')
 
 def process_range(delta):
     low = ""
@@ -62,6 +64,13 @@ def process_volume(string):
             vol += char
     return(int(vol))
 
+def add_actual(actual):
+    cursor = connection.cursor()
+    cmd = "UPDATE [dbo].[AMD_Transactions] SET Actual = {} WHERE ID IN (select TOP 1 ID from [dbo].[AMD_Transactions] order by ID DESC)"
+    query = cmd.format(actual)
+    cursor.execute(query)
+    connection.commit()
+
 def get_day():
     driver = webdriver.Chrome('chromedriver.exe')
     driver.get("https://finance.yahoo.com/quote/AMD?p=AMD")
@@ -81,17 +90,14 @@ def get_day():
     
     day = Daily_data(date, _open, high, low, close, volume)
     driver.close()
-    
+    add_actual(delta)
+
     return(day)
-    
-# day = get_day()
-# print(day)
 
 def get_data():
     query = 'SELECT * FROM [dbo].[AMD]'
     data = pd.read_sql(query, connection)
     # print(data.head())
-    
     return(data)
     
 def evaluate_stock():
@@ -113,11 +119,15 @@ def evaluate_stock():
                 values[index-i].append(row["Close"])
                 values[index-i].append(row["Volume"])
                 values[index-i].append(row["Delta"])
-        if index < -days:
-            print(index)
-    
-    
-            
+        if index - len(data) in [-5, -4, -3, -2, -1]:
+            toms_predictors.append(row["Open"])
+            toms_predictors.append(row["High"])
+            toms_predictors.append(row["Low"])
+            toms_predictors.append(row["Close"])
+            toms_predictors.append(row["Volume"])
+            toms_predictors.append(row["Delta"])
+
+    # print(toms_predictors)
     values = values[days:len(data)-days]
     keys = keys[days:]
     
@@ -151,6 +161,9 @@ def evaluate_stock():
     
     X = data_frame[col_names[:-1]]
     Y = data_frame['Y']
+    
+    # print(X)
+    # print(Y)
     
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
     
@@ -193,8 +206,12 @@ def evaluate_stock():
             sumi.append(num ** 2)
         return(sum(sumi) / len(error))
     
-    print(mean_squared_error())
-            
+    def predict_tmo(tmo_X):
+        tmo_Y = 0
+        for i in range(len(tmo_X)):
+            tmo_Y += tmo_X[i] * coefs[i]
+        return(tmo_Y / len(tmo_X))
+                
     # expected = model.predict(X_test)
     # print(expected)
     # print(model.score(X_test, Y_test))
@@ -218,10 +235,10 @@ def evaluate_stock():
     # accuracy = metrics.accuracy_score(y_test, y_pred)
     # print('Accuracy: ', accuracy)
     # plt.show()
-
-evaluate_stock()
-
-
+    
+    mse = mean_squared_error()
+    toms_delta = predict_tmo(toms_predictors)
+    return((toms_delta, mse))
 
 # train_df = data_frame.sample(frac = 0.8, random_state=0)
 # test_df = data_frame.drop(train_df.index)
@@ -274,7 +291,76 @@ def add_to_data_table(day):
     workbook = load_workbook("AMD_Processed.xlsx")
     worksheet = workbook.worksheets[0]
     worksheet.append(new_row)
-    workbook.save("AMD_Processed.xlsx")
+    workbook.save("AMD_Processed.xlsx") # CHANGE TO CSV NEXT TIME
 
+# day = get_day()
 # add_to_data_table(day)
+
+class Transaction():
+    def __init__(self, ID, date, expected, actual, shares, capitol):
+        self.ID = ID
+        self.date = date
+        self.expected = expected
+        self.actual = actual
+        self.shares = shares
+        self.capitol = capitol
+    
+    def __str__(self):
+        return("{} {} {} {} {} {}".format(self.ID, self.date, self.expected, self.actual, self.shares, self.capitol))
+        
+
+def get_transactions():
+    query = 'SELECT * FROM [dbo].[AMD_Transactions]'
+    data = pd.read_sql(query, connection)
+    structured_data = []
+    for index, row in data.iterrows():
+        ID = int(row["ID"])
+        date = row["Date"]
+        expected = row["Expected"]
+        actual = row["Actual"]
+        shares = row["Shares"]
+        capitol = row["Capitol"]
+        tran = Transaction(ID, date, expected, actual, shares, capitol)
+        structured_data.append(tran)
+    return(structured_data)
+# print(get_transactions()[-1].capitol)
+
+def make_transaction():
+    transactions = get_transactions()
+    yesterday = transactions[-1]
+    ID = yesterday.ID + 1
+    date = datetime.datetime.now().date().strftime("%d/%m/%y")
+    shares = yesterday.shares
+    capitol = yesterday.capitol
+    price = yesterday.actual
+    analysis = evaluate_stock()
+    mse = analysis[1]
+    expected = analysis[0]
+    if expected > mse:
+        if shares == 0:
+            buy = math.floor(capitol/price)
+            shares += buy
+            capitol -= buy * price
+    elif expected < 0:
+        if shares > 0:
+            sell = shares
+            shares = 0
+            capitol += sell
+    tran = Transaction(ID, date, expected, 0, shares, capitol)
+    
+    cursor = connection.cursor()
+    cmd = 'INSERT INTO [dbo].[AMD_Transactions] (Date, Expected, Actual, Shares, Capitol) VALUES ({}, {}, {}, {}, {});'    
+    query = cmd.format(tran.date, tran.expected, tran.actual, tran.shares, tran.capitol)
+    cursor.execute(query)
+    connection.commit()
+    
+if __name__ == "__main__":
+    # day = get_day()
+    # add_to_data_table(day)
+    # make_transaction()
+    print("it worked")
+    
+
+
+
 
